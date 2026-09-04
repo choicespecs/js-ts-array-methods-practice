@@ -14,30 +14,27 @@ export interface MethodInfo {
   gotchas?: string[];
 }
 
-export interface TestCase {
-  /** Human readable description of this case, e.g. "empty array" */
-  label: string;
-  /** Arguments passed to the user's `solution` function */
-  args: unknown[];
-}
-
 export interface Problem {
   id: string;
   methodId: string; // matches MethodInfo.id, or "chaining"
   title: string;
   difficulty: Difficulty;
   prompt: string;
-  /** Name of the function the user must implement */
-  functionName: string;
-  /** Starter code shown in the editor */
-  starterCode: string;
-  /** Reference solution, revealed on request */
-  solutionCode: string;
-  /** Progressive hints, revealed one at a time */
+  /** Variables available to the learner's expression, e.g. { nums: [1,2,3] } */
+  context: Record<string, unknown>;
+  /** Override for how `context` is displayed as code (auto-generated when omitted). */
+  contextCode?: string;
+  /** Expression pre-filled in the editor. For a chain step, this is the previous step's solution. */
+  starterExpression: string;
+  /** Reference expression, shown as the solution and used as the next step's starter in a chain. */
+  solutionExpression: string;
+  /** Computes the correct output from `context`. */
+  reference: (context: Record<string, unknown>) => unknown;
+  /** Progressive hints, revealed one at a time. */
   hints: string[];
-  testCases: TestCase[];
-  /** Reference implementation used to compute expected output for each test case */
-  reference: (...args: any[]) => unknown;
+  /** Groups sequential chain-building problems together, in array order. */
+  chainGroup?: string;
+  chainTitle?: string;
 }
 
 export interface ProgressState {

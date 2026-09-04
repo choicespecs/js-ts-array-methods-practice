@@ -1,29 +1,19 @@
 import { methodById } from "../data/methods";
-import { problemsByMethod } from "../data/problems";
+import { problemsByMethod, chainGroups } from "../data/problems";
 import { getProgress } from "../progress";
 
 export function renderMethod(methodId: string): string {
-  const problems = problemsByMethod(methodId);
   const progress = getProgress();
   const info = methodById.get(methodId);
 
-  const header =
-    methodId === "chaining"
-      ? `
-      <div class="method-header">
-        <span class="category-tag">Mixed methods</span>
-        <h1>Chaining Challenges</h1>
-      </div>
-      <div class="explain-card">
-        <p>
-          Every array method you've learned returns a value you can immediately call another method on.
-          That's what makes chains like <code>arr.filter(...).map(...).reduce(...)</code> possible: each
-          stage narrows or transforms the data before handing it to the next. Read each chain right to left
-          in your head as a pipeline — filter first, then transform, then combine.
-        </p>
-      </div>`
-      : info
-      ? `
+  if (methodId === "chaining") {
+    return renderChainingHub(progress);
+  }
+
+  const problems = problemsByMethod(methodId);
+
+  const header = info
+    ? `
       <div class="method-header">
         <span class="category-tag">${info.category}</span>
         <h1>${info.name}()</h1>
@@ -45,7 +35,7 @@ export function renderMethod(methodId: string): string {
             : ""
         }
       </div>`
-      : "";
+    : "";
 
   const rows = problems
     .map((p) => {
@@ -63,6 +53,49 @@ export function renderMethod(methodId: string): string {
     <a class="back-link" href="#/">&larr; All methods</a>
     ${header}
     <div class="problem-list">${rows}</div>
+  `;
+}
+
+function renderChainingHub(progress: ReturnType<typeof getProgress>): string {
+  const groups = chainGroups();
+
+  const tracks = groups
+    .map((g) => {
+      const solvedCount = g.steps.filter((s) => progress.solved[s.id]).length;
+      const firstUnsolved = g.steps.find((s) => !progress.solved[s.id]) ?? g.steps[0];
+      const complete = solvedCount === g.steps.length;
+
+      const stepDots = g.steps
+        .map((s) => `<span class="chain-dot ${progress.solved[s.id] ? "done" : ""}" title="${escapeHtml(s.title)}"></span>`)
+        .join("");
+
+      return `
+        <a class="method-card chain-track ${complete ? "complete" : ""}" href="#/problem/${firstUnsolved.id}">
+          <div class="method-name">${escapeHtml(g.title)}</div>
+          <div class="tagline">${g.steps.length} steps &middot; each one chains a new method onto the last</div>
+          <div class="chain-dots">${stepDots}</div>
+          <div class="card-footer">
+            <span>${complete ? "Completed" : solvedCount > 0 ? "Continue" : "Start"}</span>
+            <span>${solvedCount}/${g.steps.length} solved</span>
+          </div>
+        </a>`;
+    })
+    .join("");
+
+  return `
+    <a class="back-link" href="#/">&larr; All methods</a>
+    <div class="method-header">
+      <span class="category-tag">Mixed methods</span>
+      <h1>Chaining Challenges</h1>
+    </div>
+    <div class="explain-card">
+      <p>
+        Every array method returns a value you can immediately call another method on. Each pipeline below
+        starts from one dataset and adds a step at a time — solve a step, see the real output, then chain the
+        next method straight onto what you already wrote.
+      </p>
+    </div>
+    <div class="category-grid">${tracks}</div>
   `;
 }
 

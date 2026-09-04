@@ -1,19 +1,10 @@
-import type { Problem, TestCase } from "./types";
-
-export interface TestResult {
-  label: string;
-  pass: boolean;
-  args: unknown[];
-  expected: unknown;
-  actual: unknown;
-  error?: string;
-}
+import type { Problem } from "./types";
 
 export interface RunResult {
-  results: TestResult[];
-  allPassed: boolean;
-  compileError?: string;
-  usedTargetMethod: boolean;
+  ranAt: number;
+  value?: unknown;
+  error?: string;
+  correct: boolean;
 }
 
 function deepEqual(a: unknown, b: unknown): boolean {
@@ -34,76 +25,67 @@ function deepEqual(a: unknown, b: unknown): boolean {
   return false;
 }
 
-function formatValue(v: unknown): string {
-  if (v === undefined) return "undefined";
-  try {
-    return JSON.stringify(v);
-  } catch {
-    return String(v);
+/** Pretty-prints a value the way you'd want it to look in a console panel. */
+export function formatOutput(value: unknown): string {
+  if (value === undefined) return "undefined";
+  if (typeof value === "function") return value.toString();
+  if (typeof value === "number" && Number.isNaN(value)) return "NaN";
+  if (typeof value === "string") return JSON.stringify(value);
+  if (Array.isArray(value) && value.every((v) => typeof v !== "object" || v === null)) {
+    // A flat array of primitives reads better as one line than JSON.stringify's one-per-line default.
+    return `[${value.map((v) => formatOutput(v)).join(", ")}]`;
   }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+/** Deep-clones context values before each run so a mutating solution can't corrupt the source data. */
+function cloneContext(context: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(context)) {
+    // structuredClone (unlike a JSON round-trip) correctly preserves NaN, which some problems rely on.
+    out[k] = typeof v === "object" && v !== null ? structuredClone(v) : v;
+  }
+  return out;
 }
 
 /**
- * Compiles the learner's code and extracts the named function.
- * Runs client-side only, in the learner's own browser tab, against
- * their own hand-written practice code — the same trust model as any
- * browser-based coding playground.
+ * Evaluates the learner's expression against the problem's context and checks it
+ * against the reference implementation. Runs client-side only, in the learner's own
+ * browser tab, against their own hand-written practice code — the same trust model
+ * as any browser-based coding playground / REPL.
  */
-function compileUserFunction(code: string, functionName: string): { fn?: (...args: unknown[]) => unknown; error?: string } {
+export function runExpression(problem: Problem, code: string): RunResult {
+  const ranAt = Date.now();
+  const runContext = cloneContext(problem.context);
+  const paramNames = Object.keys(runContext);
+  const paramValues = paramNames.map((k) => runContext[k]);
+
+  let value: unknown;
   try {
-    const factory = new Function(
-      `${code}\nif (typeof ${functionName} !== "function") { throw new Error(${JSON.stringify(
-        `No function named "${functionName}" was found. Did you rename it?`
-      )}); }\nreturn ${functionName};`
-    );
-    const fn = factory();
-    return { fn };
+    const factory = new Function(...paramNames, `"use strict";\nreturn (\n${code}\n);`);
+    value = factory(...paramValues);
   } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) };
-  }
-}
-
-export function runTests(problem: Problem, code: string): RunResult {
-  const { fn, error } = compileUserFunction(code, problem.functionName);
-  if (!fn) {
-    return { results: [], allPassed: false, compileError: error, usedTargetMethod: false };
+    return { ranAt, error: err instanceof Error ? err.message : String(err), correct: false };
   }
 
-  const results: TestResult[] = problem.testCases.map((tc: TestCase) => {
-    const expected = problem.reference(...tc.args);
-    try {
-      const actual = fn(...structuredCloneArgs(tc.args));
-      return {
-        label: tc.label,
-        pass: deepEqual(actual, expected),
-        args: tc.args,
-        expected,
-        actual,
-      };
-    } catch (err) {
-      return {
-        label: tc.label,
-        pass: false,
-        args: tc.args,
-        expected,
-        actual: undefined,
-        error: err instanceof Error ? err.message : String(err),
-      };
-    }
-  });
+  let expected: unknown;
+  try {
+    expected = problem.reference(cloneContext(problem.context));
+  } catch (err) {
+    return { ranAt, value, error: `Internal error computing expected result: ${String(err)}`, correct: false };
+  }
 
-  const usedTargetMethod = problem.methodId !== "chaining" && new RegExp(`\\.${problem.methodId}\\s*\\(`).test(code);
-
-  return {
-    results,
-    allPassed: results.length > 0 && results.every((r) => r.pass),
-    usedTargetMethod,
-  };
+  return { ranAt, value, correct: deepEqual(value, expected) };
 }
 
-function structuredCloneArgs(args: unknown[]): unknown[] {
-  // Guard against a buggy solution mutating shared test-case data between calls.
-  return args.map((a) => (typeof a === "object" && a !== null ? JSON.parse(JSON.stringify(a)) : a));
+/** Renders a problem's `context` as the `const x = ...;` block shown above the editor. */
+export function formatContext(problem: Problem): string {
+  if (problem.contextCode) return problem.contextCode;
+  return Object.entries(problem.context)
+    .map(([k, v]) => `const ${k} = ${formatOutput(v)};`)
+    .join("\n");
 }
-
-export { formatValue };
